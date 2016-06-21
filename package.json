@@ -1,0 +1,30 @@
+{
+  "name": "babel-plugin-cortex-module",
+  "version": "1.0.0-beta.0",
+  "description": "babel plugin for cortex modules",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rhgb/babel-plugin-cortex-module.git"
+  },
+  "keywords": [
+    "babel",
+    "plugin",
+    "cortex",
+    "module"
+  ],
+  "author": "Wang Mengzhe",
+  "license": "MPL-2.0",
+  "bugs": {
+    "url": "https://github.com/rhgb/babel-plugin-cortex-module/issues"
+  },
+  "homepage": "https://github.com/rhgb/babel-plugin-cortex-module#readme",
+  "dependencies": {
+    "fs-extra": "^0.30.0",
+    "semver": "^5.1.0",
+    "slash": "^1.0.0"
+  }
+}
