@@ -1,7 +1,6 @@
 'use strict';
 var nodePath = require('path');
 var fs = require('fs');
-var fse = require('fs-extra');
 var semver = require('semver');
 var slash = require('slash');
 var cortexJSON = require('./lib/cortex-json');
