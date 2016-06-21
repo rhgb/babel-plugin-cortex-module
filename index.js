@@ -30,23 +30,21 @@ module.exports = function (babel) {
                     // is a require('moduleName') statement
                     var requireParam = path.node.arguments[0].value;
                     var filePath = this.file.opts.filenameRelative;
-                    var relativeRoot, pathRelativeToRoot;
+                    var pathRelativeToRoot;
                     if (nodePath.isAbsolute(filePath)) {
-                        relativeRoot = nodePath.relative(filePath, project.root);
                         pathRelativeToRoot = nodePath.relative(project.root, filePath);
                     } else {
-                        relativeRoot = nodePath.relative(filePath, '');
                         pathRelativeToRoot = filePath;
                     }
 
                     var actualFilePath = null;
                     if (requireParam.indexOf('@cortex/') === 0) {  // is requiring a cortex module
                         var requiredName = requireParam.slice('@cortex/'.length);
-                        actualFilePath = getActualPath(requiredName, relativeRoot);
+                        actualFilePath = getActualPath(requiredName);
 
                     } else if (/^neurons[/\\]/.test(pathRelativeToRoot) && requireParam[0] !== '.') {
                         // file itself is a cortex module
-                        actualFilePath = getActualPath(requireParam, relativeRoot);
+                        actualFilePath = getActualPath(requireParam);
                     }
 
                     if (actualFilePath) {
@@ -64,7 +62,7 @@ module.exports = function (babel) {
     }
 };
 
-function getActualPath(requiredName, relativeRoot) {
+function getActualPath(requiredName) {
     var depName = requiredName;
     var isReqSpecFile = requiredName.indexOf('/') >= 0;  // require('@cortex/dpapp/some/source')
     if (isReqSpecFile) {
