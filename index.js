@@ -5,6 +5,7 @@ var semver = require('semver');
 var slash = require('slash');
 var cortexJSON = require('./lib/cortex-json');
 
+var neuronLiteJS = fs.readFileSync(nodePath.join(__dirname, 'lib/neuron-lite.js'), {encoding: 'utf-8'});
 var project = null;
 var cortexModules = {};
 
@@ -12,12 +13,72 @@ module.exports = function (babel) {
     var t = babel.types;
     return {
         visitor: {
-            Program: function () {
+            Program: function (path) {
                 if (!project) {
                     project = {
                         root: this.file.opts.sourceRoot,
                         cortex: cortexJSON.readCortexJSONSync(this.file.opts.sourceRoot)
                     };
+                }
+
+                // calculate current file path
+                var filePath = this.file.opts.filenameRelative;
+                var pathRelativeToRoot;
+                if (nodePath.isAbsolute(filePath)) {
+                    pathRelativeToRoot = nodePath.relative(project.root, filePath);
+                } else {
+                    pathRelativeToRoot = filePath;
+                }
+
+                // alter cortex built file
+                if (/^neurons[/\\]/.test(pathRelativeToRoot)) {
+                    var pathNames = pathRelativeToRoot.split(/[/\\]/);
+                    var modName = pathNames[1];
+                    var modVer = pathNames[2];
+                    if (pathNames[3] === modName + '.js') {  // is cortex module main file
+                        // parse inner module map
+                        var nodes = path.node.body[0].expression.callee.body.body;
+                        var deps = [];
+                        for (var i = 1; i < nodes.length; i++) {
+                            var node = nodes[i];
+                            if (t.isVariableDeclaration(node)) {
+                                var declarator = node.declarations[0];
+                                if (/^_\d+$/.test(declarator.id.name)) {
+                                    deps.push(declarator.init.value);
+                                }
+                            } else break;
+                        }
+                        var internalDepPrefix = modName + '@' + modVer + '/';
+                        var depStr = deps.filter(function (depName) {
+                            return depName.indexOf(internalDepPrefix) !== 0;
+                        }).reduce(function (depStr, depName) {
+                            var atPos = depName.indexOf('@');
+                            var slashPos = depName.indexOf('/');
+                            if (atPos <= 0) throw new Error('Illegal format: ' + depName);
+                            var requiredName = depName.slice(0, atPos);
+                            var versionRule = depName.slice(atPos + 1);
+                            if (slashPos > 0) {
+                                requiredName += depName.slice(slashPos);
+                            }
+                            var actualPath = getActualPath(requiredName, versionRule);
+                            depStr.push(JSON.stringify(requiredName) + ':{id:' + JSON.stringify(depName) + ',mod:require(' + JSON.stringify(actualPath) + ')}');
+                            return depStr;
+                        }, []);
+                        var replaceStr = '{' + depStr.join(',') + '}';
+                        var startupJS = neuronLiteJS.replace('$EXTDEPS$', replaceStr);
+                        var startupJSNodes = babel.transform(startupJS).ast.program.body;
+                        startupJSNodes.forEach(function (node) {
+                            babel.traverse.removeProperties(node);
+                        });
+                        path.traverse({
+                            FunctionDeclaration: function (path) {
+                                if (startupJSNodes && t.isIdentifier(path.node.id, {name: 'mix'})) {
+                                    path.insertBefore(startupJSNodes);
+                                    startupJSNodes = null;
+                                }
+                            }
+                        })
+                    }
                 }
             },
             CallExpression: function(path) {
@@ -28,24 +89,12 @@ module.exports = function (babel) {
                 ) {
                     // is a require('moduleName') statement
                     var requireParam = path.node.arguments[0].value;
-                    var filePath = this.file.opts.filenameRelative;
-                    var pathRelativeToRoot;
-                    if (nodePath.isAbsolute(filePath)) {
-                        pathRelativeToRoot = nodePath.relative(project.root, filePath);
-                    } else {
-                        pathRelativeToRoot = filePath;
-                    }
 
                     var actualFilePath = null;
                     if (requireParam.indexOf('@cortex/') === 0) {  // is requiring a cortex module
                         var requiredName = requireParam.slice('@cortex/'.length);
                         actualFilePath = getActualPath(requiredName);
-
-                    } else if (/^neurons[/\\]/.test(pathRelativeToRoot) && requireParam[0] !== '.') {
-                        // file itself is a cortex module
-                        actualFilePath = getActualPath(requireParam);
                     }
-
                     if (actualFilePath) {
                         path.traverse({
                             StringLiteral: function (path) {
@@ -61,7 +110,7 @@ module.exports = function (babel) {
     }
 };
 
-function getActualPath(requiredName) {
+function getActualPath(requiredName, versionRule) {
     var depName = requiredName;
     var isReqSpecFile = requiredName.indexOf('/') >= 0;  // require('@cortex/dpapp/some/source')
     if (isReqSpecFile) {
@@ -93,8 +142,10 @@ function getActualPath(requiredName) {
     }
 
     // get matched dependency version
-    var versionRule = project.cortex.dependencies[depName];
-    if (!versionRule) throw new Error('cortex package ' + depName + ' required but not defined in cortex.json');
+    if (!versionRule) {
+        versionRule = project.cortex.dependencies[depName];
+        if (!versionRule) throw new Error('cortex package ' + depName + ' required but not defined in cortex.json');
+    }
     var matchedVersion = null;
     depInfo.some(function (item) {
         if (semver.satisfies(item.version, versionRule)) {
